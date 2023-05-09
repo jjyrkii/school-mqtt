@@ -12,6 +12,11 @@ type Message struct {
 	Message string `json:"message"`
 }
 
+// MessageCollection is a struct to hold a collection of messages.
+type MessageCollection struct {
+	Messages []Message `json:"messages"`
+}
+
 // main is the entry point for the application.
 func main() {
 
