@@ -17,9 +17,11 @@ type MessageCollection struct {
 	Messages []Message `json:"messages"`
 }
 
-// main is the entry point for the application.
+// collection is a global variable to hold the messages.
+// This is a placeholder for a database.
 var collection MessageCollection
 
+// main is the entry point for the application.
 func main() {
 
 	// Server settings
