@@ -65,18 +65,20 @@ func main() {
 // Returns a 400 status code if the message is missing or not a string.
 func AddMessage(c *gin.Context) {
 	m := NewMessage("")
-	err := c.ShouldBindJSON(&m)
-	if err != nil {
+	if err := c.ShouldBindJSON(&m); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"message": "Message is required and must be a string.",
+			"error": err.Error(),
 		})
 		return
 	}
-
-	collection = append(collection, m)
-
+	if err := publish(client, m.Message); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Message successfully added.",
+		"message": "Message published",
 	})
 }
 
@@ -126,4 +128,11 @@ var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 // this is called when the connection to the client is lost, it prints "Connection lost" and the corresponding error
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
 	fmt.Printf("Connection lost: %v", err)
+}
+
+func publish(client mqtt.Client, text string) error {
+	if token := client.Publish("topic/test", 0, false, text); token.Error() != nil {
+		return token.Error()
+	}
+	return nil
 }
