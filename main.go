@@ -8,7 +8,46 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/gin-gonic/gin"
+	"github.com/howeyc/gopass"
 )
+
+// messageCollection is a global variable to hold the messages.
+// This is a placeholder for a database.
+var messageCollection []Message
+
+// client is a global variable to hold the MQTT client.
+var client mqtt.Client
+
+// env is a global variable to hold the environment variables.
+var env Env
+
+// init is called before the application starts.
+// It prompts the user for the environment variables.
+func init() {
+	fmt.Println("Starting the application...")
+	fmt.Println("Enter the url of your broker(e.g. broker.hivemq.com):")
+	if _, err := fmt.Scanln(&env.broker); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Enter the port of your broker(e.g. 1883):")
+	if _, err := fmt.Scanln(&env.port); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Enter the topic you want to subscribe to(e.g. topic/test):")
+	if _, err := fmt.Scanln(&env.topic); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Enter the username of your broker:")
+	if _, err := fmt.Scanln(&env.username); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Enter the password of your broker:")
+	password, err := gopass.GetPasswd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	env.password = string(password)
+}
 
 // main is the entry point for the application.
 func main() {
@@ -16,10 +55,10 @@ func main() {
 	buildClient()
 
 	// Subscribe to the topic.
-	// The callback function is called when a message is received.
-	// The message is added to the messageCollection.
-	client.Subscribe("topic/test", 0, func(client mqtt.Client, msg mqtt.Message) {
-		messageCollection = append(messageCollection, NewMessage(string(msg.Payload())))
+	// The callback function is called when a Message is received.
+	// The Message is added to the messageCollection.
+	client.Subscribe(env.topic, 0, func(client mqtt.Client, msg mqtt.Message) {
+		messageCollection = append(messageCollection, newMessage(string(msg.Payload())))
 	})
 
 	// Set up the HTTP server.
@@ -27,12 +66,11 @@ func main() {
 	server := gin.Default()
 
 	// Define the routes for the application.
-	server.GET("/messages", GetMessages)
-	server.POST("/messages", AddMessage)
+	server.GET("/messages", getMessages)
+	server.POST("/messages", addMessage)
 
 	// Start serving the application.
-	err := server.Run()
-	if err != nil {
+	if err := server.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -44,8 +82,8 @@ type Message struct {
 	Time    time.Time `json:"timestamp"`
 }
 
-// NewMessage is the constructor for the Message struct.
-func NewMessage(message string) Message {
+// newMessage is the constructor for the Message struct.
+func newMessage(message string) Message {
 	return Message{
 		ID:      len(messageCollection) + 1,
 		Message: message,
@@ -53,21 +91,23 @@ func NewMessage(message string) Message {
 	}
 }
 
-// messageCollection is a global variable to hold the messages.
-// This is a placeholder for a database.
-var messageCollection []Message
+// Env is a struct to hold the environment variables.
+type Env struct {
+	broker   string
+	port     int
+	topic    string
+	username string
+	password string
+}
 
-// client is a global variable to hold the MQTT client.
-var client mqtt.Client
-
-// AddMessage adds a message to the messageCollection and publishes it to the topic.
+// addMessage adds a Message to the messageCollection and publishes it to the topic.
 // Returns a 200 status code on success.
 // Returns a 400 status code on failure.
-func AddMessage(c *gin.Context) {
-	// instantiate a new message
-	m := NewMessage("")
+func addMessage(c *gin.Context) {
+	// instantiate a new Message
+	m := newMessage("")
 
-	// bind the JSON to the message struct
+	// bind the JSON to the Message struct
 	// if there is an error, return a 400 status code
 	if err := c.ShouldBindJSON(&m); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -76,7 +116,7 @@ func AddMessage(c *gin.Context) {
 		return
 	}
 
-	// publish the message to the topic
+	// publish the Message to the topic
 	// if there is an error, return a 400 status code
 	if err := publish(client, m.Message); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -91,9 +131,9 @@ func AddMessage(c *gin.Context) {
 	})
 }
 
-// GetMessages returns a list of all collected messages.
+// getMessages returns a list of all collected messages.
 // Returns a 200 status code.
-func GetMessages(c *gin.Context) {
+func getMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": messageCollection,
 	})
@@ -101,20 +141,13 @@ func GetMessages(c *gin.Context) {
 
 // buildClient creates a new MQTT client.
 func buildClient() {
-	// broker string
-	var broker = "ee58e6440f874431835beb51cc1fbd50.s2.eu.hivemq.cloud"
-
-	// port number
-	var port = 8883
-
-	// define the options for the client
+	// instantiate a new ClientOptions struct
 	opts := mqtt.NewClientOptions()
 
 	// set the connection options
-	opts.AddBroker(fmt.Sprintf("tls://%s:%d", broker, port))
-	opts.SetClientID("<client_name>") // set a name as you desire
-	opts.SetUsername("username")      // these are the credentials that you declare for your cluster
-	opts.SetPassword("Password123")
+	opts.AddBroker(fmt.Sprintf("tls://%s:%d", env.broker, env.port))
+	opts.SetUsername(env.username)
+	opts.SetPassword(env.password)
 
 	// set callback handlers that get called on certain events
 	//opts.SetDefaultPublishHandler(messagePubHandler)
@@ -132,7 +165,22 @@ func buildClient() {
 
 // upon connection to the client, this is called
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	fmt.Println("Connected to client")
+	fmt.Println("Successfully connected")
+	fmt.Println("Broker:", env.broker)
+	fmt.Println("Subscribing to topic:", env.topic)
+	fmt.Println("http server listening on port:", env.port)
+	fmt.Println("===================================")
+	fmt.Println("to publish a message, send a POST request to /messages")
+	fmt.Println("the request body should be a JSON object with the following structure:")
+	fmt.Println("{")
+	fmt.Println("  \"message\": \"your message\"")
+	fmt.Println("}")
+	fmt.Println("===================================")
+	fmt.Println("to get all messages, send a GET request to /messages")
+	fmt.Println("===================================")
+	fmt.Println("to exit the application, press CTRL+C")
+	fmt.Println("===================================")
+	fmt.Println("HTTP Request Log:")
 }
 
 // this is called when the connection to the client is lost, it prints "Connection lost" and the corresponding error
@@ -140,7 +188,7 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 	fmt.Printf("Connection lost: %v", err)
 }
 
-// publish publishes a message to the topic.
+// publish publishes a Message to the topic.
 func publish(client mqtt.Client, text string) error {
 	if token := client.Publish("topic/test", 0, false, text); token.Error() != nil {
 		return token.Error()
