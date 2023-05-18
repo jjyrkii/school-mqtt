@@ -10,29 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Message is a struct to hold a message.
-type Message struct {
-	ID      int       `json:"id"`
-	Message string    `json:"message" binding:"required"`
-	Time    time.Time `json:"timestamp"`
-}
-
-// NewMessage is the constructor for the Message struct.
-func NewMessage(message string) Message {
-	return Message{
-		ID:      len(collection) + 1,
-		Message: message,
-		Time:    time.Now(),
-	}
-}
-
-// collection is a global variable to hold the messages.
-// This is a placeholder for a database.
-var collection []Message
-
-// client is a global variable to hold the MQTT client.
-var client mqtt.Client
-
 // main is the entry point for the application.
 func main() {
 	// Create a new MQTT client.
@@ -40,9 +17,9 @@ func main() {
 
 	// Subscribe to the topic.
 	// The callback function is called when a message is received.
-	// The message is added to the collection.
+	// The message is added to the messageCollection.
 	client.Subscribe("topic/test", 0, func(client mqtt.Client, msg mqtt.Message) {
-		collection = append(collection, NewMessage(string(msg.Payload())))
+		messageCollection = append(messageCollection, NewMessage(string(msg.Payload())))
 	})
 
 	// Set up the HTTP server.
@@ -60,32 +37,65 @@ func main() {
 	}
 }
 
-// AddMessage adds a message to the collection.
-// Returns a 200 status code if successful.
-// Returns a 400 status code if the message is missing or not a string.
+// Message is a struct to hold a message.
+type Message struct {
+	ID      int       `json:"id"`
+	Message string    `json:"message" binding:"required"`
+	Time    time.Time `json:"timestamp"`
+}
+
+// NewMessage is the constructor for the Message struct.
+func NewMessage(message string) Message {
+	return Message{
+		ID:      len(messageCollection) + 1,
+		Message: message,
+		Time:    time.Now(),
+	}
+}
+
+// messageCollection is a global variable to hold the messages.
+// This is a placeholder for a database.
+var messageCollection []Message
+
+// client is a global variable to hold the MQTT client.
+var client mqtt.Client
+
+// AddMessage adds a message to the messageCollection and publishes it to the topic.
+// Returns a 200 status code on success.
+// Returns a 400 status code on failure.
 func AddMessage(c *gin.Context) {
+	// instantiate a new message
 	m := NewMessage("")
+
+	// bind the JSON to the message struct
+	// if there is an error, return a 400 status code
 	if err := c.ShouldBindJSON(&m); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
+
+	// publish the message to the topic
+	// if there is an error, return a 400 status code
 	if err := publish(client, m.Message); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
+
+	// otherwise, return a 200 status code
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Message published",
 	})
 }
 
 // GetMessages returns a list of all collected messages.
+// Returns a 200 status code.
 func GetMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"data": collection,
+		"data": messageCollection,
 	})
 }
 
@@ -130,6 +140,7 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 	fmt.Printf("Connection lost: %v", err)
 }
 
+// publish publishes a message to the topic.
 func publish(client mqtt.Client, text string) error {
 	if token := client.Publish("topic/test", 0, false, text); token.Error() != nil {
 		return token.Error()
