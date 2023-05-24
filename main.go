@@ -1,3 +1,7 @@
+// Abgabe LF 7
+// Tim Pfeiffer
+// BSFI21a
+
 package main
 
 import (
